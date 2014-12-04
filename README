@@ -1,0 +1,29 @@
+# Pre-requisites:
+  - Create a directory 'invoice_files' under 'Whiteboard' root folder. Make sure this directory is writable by the user running your webserver.
+  - Create a new bucket with name 'whiteboarddev'. This could be created on the fly as well, but since this is a one time process, its hardcoded @whiteboard_migration.moduleL#303.
+  - Create ~/.aws/credentials & write aws credentials in the credentials file. This is to keep your aws details secure.
+    - Tempalate:
+      [default]
+      aws_access_key_id = [AWS_KEY]
+      aws_secret_access_key = [AWS_ACCESS_KEY]
+
+# Installation:
+  - drush en -y whiteboard_migration
+NOTE: This module contains code for theme pre-processors as well, so should be enabled for the sites whose template files have been modified. List of sites for which the module should be enabled:
+  - http://whiteboard.cactusglobal.com
+  - http://payments.cactusglobal.com
+  - http://wiki.editage.com
+  - http://online.editage.jp
+
+# What this module provides:
+  - Theme pre-processor functions where the db_query is moved to from tpl files.
+  - drush commands to handle the migration
+    - drush mwig: generates html files from content in content_type_invoice table & store them in invoice_files folder.
+    - drush mwiu: uploads the html files from invoice_files directory to s3 bucket 'whiteboarddev'.
+    - drush mwpg: generates html files for the payments content corresponding to migrated invoices.
+    - drush mwpu: uploads the html files from invoice_files directory to s3 bucket 'whiteboarddev'.
+
+NOTE: Please make sure the order of execution matters here.
+
+# Post-processing:
+  - After running the drush commands, make sure we delete the invoice_files folder. This will be an exact duplicate of the html files uploaded to s3.

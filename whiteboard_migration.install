@@ -1,0 +1,94 @@
+<?php
+/**
+ * @file
+ *
+ * Install file. Contains hooks related to module installation.
+ */
+
+/**
+ * Implements hook_schema()
+ *
+ * @return mixed
+ */
+function whiteboard_migration_schema() {
+  $schema = array();
+
+  $schema['whiteboard_migration_map'] = array(
+    'description' => 'Holds the mapping between migrated invoice ids & corresponding html files.',
+    'fields' => array (
+      'nid' => array (
+        'type' => 'int',
+        'not null' => TRUE,
+        'description' => t('Migrated invoice node ids.'),
+      ),
+      'vid' => array (
+        'type' => 'int',
+        'not null' => TRUE,
+        'description' => t('Migrated invoice version ids.'),
+      ),
+      'type' => array (
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => t('Node type for the record.'),
+      ),
+      'filepath_online' => array (
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => '',
+        'description' => t('Local file path for the html file.'),
+      ),
+      'filepath_print' => array (
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => '',
+        'description' => t('Local file path for the html file.'),
+      ),
+      's3url_online' => array (
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => '',
+        'description' => t('s3url for the html file.'),
+      ),
+      's3url_print' => array (
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => '',
+        'description' => t('s3url for the html file.'),
+      ),
+      'uploaded' => array (
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => t('Upload status.'),
+      ),
+    ),
+    'primary key' => array('vid'),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implements hook_install()
+ */
+function whiteboard_migration_install() {
+  try {
+    drupal_install_schema("whiteboard_migration");
+  }
+  catch (Exception $e) {
+    drupal_set_message("Installation of Whiteboard Migration table failed!");
+  }
+}
+
+/**
+ * Implements hook_uninstall()
+ */
+function whiteboard_migration_uninstall() {
+  drupal_uninstall_schema("whiteboard_migration");
+}

@@ -1,0 +1,466 @@
+<?php
+/**
+ * @file
+ *
+ * Module file for migrating invoices to amazon s3
+ */
+
+define('WHITEBOARD_INVOICE_DIRPATH', 'invoice_files/');
+define('DRUPAL_BASEPATH', realpath('.' . base_path()));
+define('WHITEBOARD_INVOICE_HEADER_START_COMMENT', 'Header begins here for invoice #');
+define('WHITEBOARD_INVOICE_HEADER_END_COMMENT', 'Header ends here for invoice #');
+define('WHITEBOARD_INVOICE_BODY_START_COMMENT', 'Body begins here for invoice #');
+define('WHITEBOARD_INVOICE_BODY_END_COMMENT', 'Body ends here for invoice #');
+define('WHITEBOARD_INVOICE_FOOTER_START_COMMENT', 'Footer begins here for invoice #');
+define('WHITEBOARD_INVOICE_FOOTER_END_COMMENT', 'Footer ends here for invoice #');
+define('WHITEBOARD_PAYMENT_HEADER_START_COMMENT', 'Header begins here for payment #');
+define('WHITEBOARD_PAYMENT_HEADER_END_COMMENT', 'Header ends here for payment #');
+define('WHITEBOARD_PAYMENT_BODY_START_COMMENT', 'Body begins here for payment #');
+define('WHITEBOARD_PAYMENT_BODY_END_COMMENT', 'Body ends here for payment #');
+define('WHITEBOARD_PAYMENT_FOOTER_START_COMMENT', 'Footer begins here for payment #');
+define('WHITEBOARD_PAYMENT_FOOTER_END_COMMENT', 'Footer ends here for payment #');
+
+module_load_include('inc', 'whiteboard_migration', 'theme/whiteboard_migration.theme');
+module_load_include('inc', 'whiteboard_migration', 'includes/WhiteboardMigrationInvoice');
+
+/**
+ * Batch Operation callback for invoice migration.
+ */
+function whiteboard_migration_batch_process_invoices_create($invoices, $status) {
+  print('Generating HTML files - ' . $status);
+  foreach ($invoices as $invoice) {
+    // Prepare HTML invoices.
+    whiteboard_migration_prepare_html_invoice_online($invoice['nid'], $invoice['vid']);
+    whiteboard_migration_prepare_html_invoice_print($invoice['nid'], $invoice['vid']);
+  }
+}
+
+/**
+ * Batch Operation callback for payment migration.
+ */
+function whiteboard_migration_prepare_markup($payment_nids, $status) {
+  print('Generating HTML payment files - ' . $status);
+  foreach ($payment_nids as $payment_nid) {
+    $payment_node = node_load($payment_nid);
+    // Prepare HTML invoices.
+    whiteboard_migration_prepare_html_payment_online($payment_node);
+    whiteboard_migration_prepare_html_payment_print($payment_node);
+  }
+}
+
+/**
+ * Batch Operation callback to move invoices to s3 bucket.
+ */
+function whiteboard_migration_move_invoice_files_to_s3($files, $status) {
+  print('Post-processing: Moving files to s3 - ' . $status);
+  foreach ($files as $file) {
+    $wbmigration_invoice = new WhiteboardMigrationInvoice($file['filepath_online'],$file['filepath_print'], $file['nid'], $file['vid'], $file['type']);
+    $wbmigration_invoice->migrateFile();
+  }
+}
+
+/**
+ * Completion handler for invoice migration batch process.
+ */
+function whiteboard_migration_invoice_batch_complete($success, $results, $operations) {
+  print t('Migration Finished Successfully!');
+}
+
+/**
+ * helper function to fetch invoice records that need to be migrated.
+ */
+function whiteboard_migration_select_invoices($limit = NULL) {
+  $invoices = array();
+
+  // Fetch a list of already processed invoices.
+  $query = "SELECT vid FROM {whiteboard_migration_map} where type='invoice' AND uploaded = 1";
+  $result = db_query($query);
+
+  while ($row = db_fetch_array($result)) {
+    $migrated_invoice_vids[] = $row['vid'];
+  }
+
+  $query = "SELECT DISTINCT inv.nid, inv.vid FROM {shared.content_type_invoice} as inv";
+  $query .= " JOIN {shared.content_type_payment_outstanding} as ctp";
+  $query .= " JOIN {shared.node} as n";
+  $query .= " ON ctp.field_payment_outstanding_inv_dn_nid=inv.nid";
+  $query .= " AND n.nid=inv.nid";
+  $query .= " AND n.changed <= UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 6 MONTH))";
+  $query .= " WHERE field_payment_outstanding_amount_value=0.00";
+  $query .= " ORDER BY n.changed DESC";
+
+  if ($limit) {
+    $query .= " LIMIT 0," . $limit;
+  }
+
+  $result = db_query($query);
+
+  while ($row = db_fetch_array($result)) {
+    if ((count($migrated_invoice_vids) > 0) && (in_array($row['vid'], $migrated_invoice_vids))) {
+      continue;
+    }
+    $invoices[] = array('nid' => $row['nid'], 'vid' => $row['vid']);
+  }
+
+  return $invoices;
+}
+
+/**
+ * @param null $invoice_id
+ */
+function whiteboard_migration_prepare_html_invoice_online($invoice_nid, $invoice_vid) {
+  // Prepare HTML file for online invoice.
+  $utf8_html_head = '<html><head><meta charset="utf-8" /></head>';
+  $header_start_comment = '<!--' . WHITEBOARD_INVOICE_HEADER_START_COMMENT . $invoice_vid . '-->';
+  $header_end_comment = '<!--' . WHITEBOARD_INVOICE_HEADER_END_COMMENT . $invoice_vid . '-->';
+  $body_start_comment = '<!--' . WHITEBOARD_INVOICE_BODY_START_COMMENT . $invoice_vid . '-->';
+  $body_end_comment = '<!--' . WHITEBOARD_INVOICE_BODY_END_COMMENT . $invoice_vid . '-->';
+  $footer_start_comment = '<!--' . WHITEBOARD_INVOICE_FOOTER_START_COMMENT . $invoice_vid . '-->';
+  $footer_end_comment = '<!--' . WHITEBOARD_INVOICE_FOOTER_END_COMMENT . $invoice_vid . '-->';
+
+  $query = "SELECT CONCAT('" . $utf8_html_head . "<body>" . $header_start_comment . "'";
+  $query .= ", IFNULL(field_invoice_header_online_value, ''), '" . $header_end_comment . $body_start_comment . "'";
+  $query .= ", IFNULL(field_invoice_content_online_value, ''), '" . $body_end_comment . $footer_start_comment . "'";
+  $query .= ", IFNULL(field_invoice_footer_online_value, ''), '" . $footer_end_comment . "</body></html>";
+  $query .= "') as invoice_markup FROM {content_type_invoice} WHERE";
+  $query .= " nid = %d AND vid = %d AND (field_invoice_header_online_value IS NOT NULL";
+  $query .= " OR field_invoice_content_online_value IS NOT NULL";
+  $query .= " OR field_invoice_footer_online_value IS NOT NULL)";
+
+  $result = db_query($query, array($invoice_nid, $invoice_vid));
+
+  $invoice_node = db_fetch_array($result);
+
+  if (isset($invoice_node['invoice_markup']) && $invoice_node['invoice_markup']) {
+    // Preparing migrate map object
+    $migrate_map_invoice = new stdClass();
+    $migrate_map_invoice->nid = $invoice_nid;
+    $migrate_map_invoice->vid = $invoice_vid;
+    $migrate_map_invoice->type = 'invoice';
+    $migrate_map_invoice->filepath_online = WHITEBOARD_INVOICE_DIRPATH . $invoice_nid . '-' . $invoice_vid . '-' . 'online.html';
+    $migrate_map_invoice->uploaded= 0;
+
+    $file_write_status = whiteboard_migration_write_html_to_disk($invoice_node['invoice_markup'], $invoice_nid, $invoice_vid, 'online');
+
+    // If file write was successful, then only make an entry in migrate table.
+    if ($file_write_status) {
+      $response = drupal_write_record('whiteboard_migration_map', $migrate_map_invoice);
+      if ($response) {
+
+      }
+    }
+  }
+}
+
+/**
+ * @param null $invoice_id
+ */
+function whiteboard_migration_prepare_html_invoice_print($invoice_nid, $invoice_vid) {
+  // Prepare HTML file for online invoice.
+  $utf8_html_head = '<html><head><meta charset="utf-8" /></head>';
+  $header_start_comment = '<!--' . WHITEBOARD_INVOICE_HEADER_START_COMMENT . $invoice_vid . '-->';
+  $header_end_comment = '<!--' . WHITEBOARD_INVOICE_HEADER_END_COMMENT . $invoice_vid . '-->';
+  $body_start_comment = '<!--' . WHITEBOARD_INVOICE_BODY_START_COMMENT . $invoice_vid . '-->';
+  $body_end_comment = '<!--' . WHITEBOARD_INVOICE_BODY_END_COMMENT . $invoice_vid . '-->';
+  $footer_start_comment = '<!--' . WHITEBOARD_INVOICE_FOOTER_START_COMMENT . $invoice_vid . '-->';
+  $footer_end_comment = '<!--' . WHITEBOARD_INVOICE_FOOTER_END_COMMENT . $invoice_vid . '-->';
+
+  $query = "SELECT CONCAT('" . $utf8_html_head . "<body>" . $header_start_comment . "'";
+  $query .= ", IFNULL(field_invoice_header_value, ''), '" . $header_end_comment . $body_start_comment . "'";
+  $query .= ", IFNULL(field_invoice_template_content_value, ''), '" . $body_end_comment . $footer_start_comment . "'";
+  $query .= ", IFNULL(field_invoice_footer_value, ''), '" . $footer_end_comment . "</body></html>";
+  $query .= "') as invoice_markup FROM {content_type_invoice} WHERE";
+  $query .= " nid = %d AND vid = %d AND (field_invoice_header_value IS NOT NULL";
+  $query .= " OR field_invoice_template_content_value IS NOT NULL";
+  $query .= " OR field_invoice_footer_value IS NOT NULL)";
+
+  $result = db_query($query, array($invoice_nid, $invoice_vid));
+
+  $invoice_node = db_fetch_array($result);
+
+  if (isset($invoice_node['invoice_markup']) && $invoice_node['invoice_markup']) {
+    // Preparing migrate map object
+    $migrate_map_invoice = new stdClass();
+    $migrate_map_invoice->nid = $invoice_nid;
+    $migrate_map_invoice->vid = $invoice_vid;
+    $migrate_map_invoice->type = 'invoice';
+    $migrate_map_invoice->filepath_print = WHITEBOARD_INVOICE_DIRPATH . $invoice_nid . '-' . $invoice_vid . '-' . 'print.html';
+    $migrate_map_invoice->uploaded= 0;
+
+    $file_write_status = whiteboard_migration_write_html_to_disk($invoice_node['invoice_markup'], $invoice_nid, $invoice_vid, 'print');
+
+    // Check if a migration record with same vid already exists.
+    $query = "SELECT count(*) as vid_count FROM {whiteboard_migration_map} WHERE";
+    $query .= " vid=%d";
+
+    $result = db_query($query, array($invoice_vid));
+
+    $count = array_shift(db_fetch_array($result));
+    // If file write was successful, then only make an entry in migrate table.
+    if (($file_write_status) && ($count > 0)) {
+      $response = drupal_write_record('whiteboard_migration_map', $migrate_map_invoice, 'vid');
+      if ($response) {
+
+      }
+    }
+    else {
+      $response = drupal_write_record('whiteboard_migration_map', $migrate_map_invoice);
+    }
+  }
+}
+/**
+ * Helper function to update archived invoice records.
+ */
+function whiteboard_migration_clear_archived_invoices($invoice_nid, $invoice_vid, $s3_url_online, $s3_url_print) {
+  $update_invoice_query = 'Update {content_type_invoice}';
+  if (($s3_url_online) || ($s3_url_print)) {
+    $update_invoice_query .= ' set';
+  }
+  if ($s3_url_print) {
+    $update_invoice_query .= ' field_invoice_template_content_value = "%s",';
+    $update_invoice_query .= ' field_invoice_header_value = NULL,';
+    $update_invoice_query .= ' field_invoice_footer_value = NULL,';
+  }
+  if ($s3_url_online) {
+    $update_invoice_query .= ' field_invoice_header_online_value = NULL,';
+    $update_invoice_query .= ' field_invoice_content_online_value = "%s",';
+    $update_invoice_query .= ' field_invoice_footer_online_value = NULL';
+  }
+
+  $update_invoice_query = rtrim($update_invoice_query, ',');
+  $update_invoice_query .= ' WHERE nid=%d AND vid=%d';
+
+  if (($s3_url_online) && ($s3_url_print)) {
+    db_query($update_invoice_query, array($s3_url_print, $s3_url_online, $invoice_nid, $invoice_vid));
+  }
+  elseif ($s3_url_print) {
+    db_query($update_invoice_query, array($s3_url_print, $invoice_nid, $invoice_vid));
+  }
+  elseif ($s3_url_online) {
+    db_query($update_invoice_query, array($s3_url_online, $invoice_nid, $invoice_vid));
+  }
+}
+
+
+/**
+ * Helper function to update archived invoice records.
+ */
+function whiteboard_migration_clear_archived_payments($nid, $vid, $s3_url_online, $s3_url_print) {
+  $update_payment_query = 'Update {content_type_payment}';
+  if (($s3_url_online) || ($s3_url_print)) {
+    $update_payment_query .= ' set';
+  }
+
+  if ($s3_url_print) {
+    $update_payment_query .= ' field_payment_receipt_pth_value = NULL,';
+    $update_payment_query .= ' field_payment_receipt_ptt_value = "%s",';
+    $update_payment_query .= ' field_payment_receipt_ptf_value = NULL,';
+  }
+
+  if ($s3_url_online) {
+    $update_payment_query .= ' field_payment_receipt_ott_value = "%s",';
+    $update_payment_query .= ' field_payment_receipt_oth_value = NULL,';
+    $update_payment_query .= ' field_payment_receipt_otf_value = NULL';
+  }
+
+  $update_payment_query = rtrim($update_payment_query, ',');
+  $update_payment_query .= ' WHERE nid=%d AND vid=%d';
+
+  if (($s3_url_online) && ($s3_url_print)) {
+    db_query($update_payment_query, array($s3_url_print, $s3_url_online, $nid, $vid));
+  }
+  elseif ($s3_url_online) {
+    db_query($update_payment_query, array($s3_url_online, $nid, $vid));
+  }
+  elseif ($s3_url_print) {
+    db_query($update_payment_query, array($s3_url_print, $nid, $vid));
+  }
+}
+
+/**
+ * Helper function to write invoice content as an HTML file on the disk.
+ *
+ * These files will be pushed at once to s3.
+ */
+function whiteboard_migration_write_html_to_disk($content, $invoice_nid, $invoice_vid, $type = '') {
+  $file = WHITEBOARD_INVOICE_DIRPATH . $invoice_nid . '-' . $invoice_vid . '-' . $type . '.html';
+  $fp = fopen($file, 'wb');
+  $length = fputs($fp, $content);
+  fclose($fp);
+
+  return $length;
+}
+
+/**
+ * Returns an array of files that aren't uploaded to S3.
+ */
+function whiteboard_migration_select_unmigrated_files($type) {
+  $query = "SELECT * FROM {whiteboard_migration_map} WHERE uploaded = 0 AND type = '%s'";
+  $result = db_query($query, array($type));
+
+  while ($row = db_fetch_array($result)) {
+    $files[] = array(
+      'filepath_online' => $row['filepath_online'],
+      'filepath_print' => $row['filepath_print'],
+      'nid' => $row['nid'],
+      'vid' => $row['vid'],
+      'type' => $type
+    );
+  }
+  return $files;
+}
+
+/**
+ * Helper function to fetch list of payments to be moved to s3
+ */
+function whiteboard_migration_fetch_payments() {
+  $query = "SELECT DISTINCT nid FROM {whiteboard_migration_map} WHERE type='%s'";
+  $result = db_query($query, array('invoice'));
+
+  while($row = db_fetch_array($result)) {
+    $invoice_nids[] = $row['nid'];
+  }
+
+  foreach($invoice_nids as $invoice_nid) {
+    $query = "SELECT DISTINCT field_pia_payment_id_nid as payment_nid";
+    $query .= " FROM {content_type_payment_invoice_association}";
+    $query .= " WHERE field_pia_invoice_id_nid = %d";
+    $result = db_query($query, array($invoice_nid));
+    $row =  db_fetch_array($result);
+    $payment_nids[] = $row['payment_nid'];
+  }
+
+  return array_filter($payment_nids);
+}
+
+
+/**
+ * Helper function to generate HTML for payment reciepts.
+ */
+function whiteboard_migration_prepare_html_payment_online($payment_node) {
+  $payment_ott = $payment_node->field_payment_receipt_ott[0]["value"];
+  $payment_oth = $payment_node->field_payment_receipt_oth[0]["value"];
+  $payment_otf = $payment_node->field_payment_receipt_otf[0]["value"];
+  $utf8_html_head = '<html><head><meta charset="utf-8" /></head>';
+  $header_start_comment = '<!--' . WHITEBOARD_PAYMENT_HEADER_START_COMMENT . $payment_nid . '-->';
+  $header_end_comment = '<!--' . WHITEBOARD_PAYMENT_HEADER_END_COMMENT . $payment_nid . '-->';
+  $body_start_comment = '<!--' . WHITEBOARD_PAYMENT_BODY_START_COMMENT . $payment_nid . '-->';
+  $body_end_comment = '<!--' . WHITEBOARD_PAYMENT_BODY_END_COMMENT . $payment_nid . '-->';
+  $footer_start_comment = '<!--' . WHITEBOARD_PAYMENT_FOOTER_START_COMMENT . $payment_nid . '-->';
+  $footer_end_comment = '<!--' . WHITEBOARD_PAYMENT_FOOTER_END_COMMENT . $payment_nid . '-->';
+  if ($payment_otf || $payment_oth || $payment_ott) {
+    $payment_markup = $utf8_html_head . $header_start_comment;
+    $payment_markup .= $payment_oth . $header_end_comment;
+    $payment_markup .= $body_start_comment . $payment_ott;
+    $payment_markup .= $body_end_comment . $footer_start_comment;
+    $payment_markup .= $payment_otf . $footer_end_comment;
+
+    $migrate_map_payment = new stdClass();
+    $migrate_map_payment->nid = $payment_node->nid;
+    $migrate_map_payment->vid = $payment_node->vid;
+    $migrate_map_payment->type = $payment_node->type;
+    $migrate_map_payment->filepath_online = WHITEBOARD_INVOICE_DIRPATH . $payment_node->nid . '-' . $payment_node->vid . '-' . 'online.html';
+    $migrate_map_payment->uploaded = 0;
+
+    $file_write_status = whiteboard_migration_write_html_to_disk($payment_markup, $payment_node->nid, $payment_node->vid, 'online');
+
+    // If file write was successful, then only make an entry in migrate table.
+    if ($file_write_status) {
+      $response = drupal_write_record('whiteboard_migration_map', $migrate_map_payment);
+      if ($response) {
+
+      }
+    }
+  }
+}
+
+/**
+ * Helper function to generate HTML for payment reciepts.
+ */
+function whiteboard_migration_prepare_html_payment_print($payment_node) {
+  $payment_ptt = $payment_node->field_payment_receipt_ptt[0]["value"];
+  $payment_pth = $payment_node->field_payment_receipt_pth[0]["value"];
+  $payment_ptf = $payment_node->field_payment_receipt_ptf[0]["value"];
+  $utf8_html_head = '<html><head><meta charset="utf-8" /></head>';
+  $header_start_comment = '<!--' . WHITEBOARD_PAYMENT_HEADER_START_COMMENT . $payment_nid . '-->';
+  $header_end_comment = '<!--' . WHITEBOARD_PAYMENT_HEADER_END_COMMENT . $payment_nid . '-->';
+  $body_start_comment = '<!--' . WHITEBOARD_PAYMENT_BODY_START_COMMENT . $payment_nid . '-->';
+  $body_end_comment = '<!--' . WHITEBOARD_PAYMENT_BODY_END_COMMENT . $payment_nid . '-->';
+  $footer_start_comment = '<!--' . WHITEBOARD_PAYMENT_FOOTER_START_COMMENT . $payment_nid . '-->';
+  $footer_end_comment = '<!--' . WHITEBOARD_PAYMENT_FOOTER_END_COMMENT . $payment_nid . '-->';
+  if ($payment_ptf || $payment_pth || $payment_ptt) {
+    $payment_markup = $utf8_html_head . $header_start_comment;
+    $payment_markup .= $payment_pth . $header_end_comment;
+    $payment_markup .= $body_start_comment . $payment_ptt;
+    $payment_markup .= $body_end_comment . $footer_start_comment;
+    $payment_markup .= $payment_ptf . $footer_end_comment;
+
+    $migrate_map_payment = new stdClass();
+    $migrate_map_payment->nid = $payment_node->nid;
+    $migrate_map_payment->vid = $payment_node->vid;
+    $migrate_map_payment->type = $payment_node->type;
+    $migrate_map_payment->filepath_print = WHITEBOARD_INVOICE_DIRPATH . $payment_node->nid . '-' . $payment_node->vid . '-' . 'print.html';
+    $migrate_map_payment->uploaded = 0;
+
+    $file_write_status = whiteboard_migration_write_html_to_disk($payment_markup, $payment_node->nid, $payment_node->vid, 'print');
+    // Check if a migration record with same vid already exists.
+    $query = "SELECT count(*) as vid_count FROM {whiteboard_migration_map} WHERE";
+    $query .= " vid=%d";
+
+    $result = db_query($query, array($payment_node->vid));
+
+    $count = array_shift(db_fetch_array($result));
+
+    // If file write was successful, then only make an entry in migrate table.
+    if (($file_write_status) && ($count > 0)) {
+      $response = drupal_write_record('whiteboard_migration_map', $migrate_map_payment, 'vid');
+      if ($response) {
+
+      }
+    }
+    else {
+      $response = drupal_write_record('whiteboard_migration_map', $migrate_map_payment);
+    }
+  }
+}
+
+/**
+ * Helper to break the whole process into batches & start processing.
+ */
+function whiteboard_migration_create_batch($resources, $chunk_size, $operation_callback, $complete_callback, $batch_title) {
+  $chunks = array_chunk($resources, $chunk_size);
+  $operations = array();
+  $chunk_counter = 0;
+  //for every chunk, assign some method to run on that chunk of data
+  foreach ($chunks as $chunk) {
+    $chunk_counter++;
+    $operations[] = array(
+      $operation_callback,
+      array(
+        $chunk,
+        'details' => t('@chunk  of  @count.' . PHP_EOL, array(
+            '@chunk' => ($chunk_counter * $chunk_size),
+            '@count' => count($resources)
+          ))
+      )
+    );
+  }
+  //put all that information into our batch array
+  $batch = array(
+    'operations' => $operations,
+    'title' => t($batch_title),
+    'init_message' => t('Initializing'),
+    'error_message' => t('An error occurred'),
+    'finished' => $complete_callback
+  );
+
+  //Get the batch process all ready!
+  batch_set($batch);
+  $batch =& batch_get();
+
+  //Because we are doing this on the back-end, we set progressive to false.
+  $batch['progressive'] = FALSE;
+
+  //Start processing the batch operations.
+  drush_backend_batch_process();
+}

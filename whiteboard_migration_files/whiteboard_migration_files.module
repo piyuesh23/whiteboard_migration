@@ -1,0 +1,267 @@
+<?php
+/**
+ * @file
+ *
+ * Module file for Whiteboard files migration
+ */
+module_load_include('inc', 'whiteboard_migration', 'includes/WhiteboardMigrationInvoice');
+
+/**
+ * Batch Operation callback for invoice migration.
+ */
+function whiteboard_migration_batch_process_files_create($fids, $status) {
+  foreach ($fids as $key => $fid) {
+    _whitebord_migration_files_process($fid);
+  }
+}
+
+/**
+ * @return array of completed job's enquiry file ids.
+ */
+function _whiteboard_migration_files_fetch_job_enquiry_fids($limit = NULL) {
+  $job_enquiry_files = array();
+  // Query to fetch fids for enquiry files.
+  $query = "SELECT DISTINCT cfej.field_enquiry_job_files_fid FROM";
+  $query .= " {content_field_enquiry_job_files} as cfej JOIN";
+  $query .= " {content_type_job} as ctj ON ctj.field_job_enquiry_id_nid=cfej.nid";
+  $query .= " WHERE ctj.field_job_sent_to_client_date_value IS NOT NULL";
+
+  if ($limit) {
+    $query .= ' LIMIT 0, ' . $limit;
+  }
+
+  $result = db_query($query);
+
+  while ($row = db_fetch_array($result)) {
+    $job_enquiry_files[] = $row['field_enquiry_job_files_fid'];
+  }
+
+  return $job_enquiry_files;
+}
+
+/**
+ * @return array of completed job's enquiry reference file ids.
+ */
+function _whiteboard_migration_files_fetch_job_enquiry_reference_fids() {
+  $job_enquiry_reference_files = array();
+  // Query to fetch fids for enquiry files.
+  $query = "SELECT DISTINCT cfej.field_enquiry_reference_files_fid FROM";
+  $query .= " {content_field_enquiry_reference_files} as cfej JOIN";
+  $query .= " {content_type_job} as ctj ON ctj.field_job_enquiry_id_nid=cfej.nid";
+  $query .= " WHERE ctj.field_job_sent_to_client_date_value IS NOT NULL";
+
+  $result = db_query($query);
+
+  while ($row = db_fetch_array($result)) {
+    $job_enquiry_reference_files[] = $row['field_enquiry_reference_files_fid'];
+  }
+
+  return $job_enquiry_reference_files;
+}
+
+/**
+ * @return array of completed job's processed file ids.
+ */
+function _whiteboard_migration_files_fetch_job_enquiry_processed_fids() {
+  $job_enquiry_processed_files = array();
+  // Query to fetch fids for enquiry files.
+  $query = "SELECT DISTINCT cfjdf.field_job_details_files_fid FROM";
+  $query .= " {content_field_job_details_files} as cfjdf JOIN";
+  $query .= " {content_type_job_details} as ctjd ON cfjdf.nid = ctjd.nid JOIN";
+  $query .= " {content_type_job} as ctj ON ctj.nid=ctjd.field_job_details_job_id_nid";
+  $query .= " WHERE ctj.field_job_sent_to_client_date_value IS NOT NULL";
+
+  $result = db_query($query);
+
+  while ($row = db_fetch_array($result)) {
+    $job_enquiry_processed_files[] = $row['field_job_details_files_fid'];
+  }
+
+  return $job_enquiry_processed_files;
+}
+
+/**
+ * @return array of completed job files sent to client
+ */
+function _whiteboard_migration_files_fetch_job_files_to_c_fids() {
+  $job_files_to_c = array();
+  // Query to fetch fids for enquiry files.
+  $query = "SELECT DISTINCT cfjfsc.field_job_files_sent_to_client_fid FROM";
+  $query .= " {content_field_job_files_sent_to_client} as cfjfsc JOIN";
+  $query .= " {content_type_job} as ctj ON cfjfsc.nid = ctj.nid";
+  $query .= " WHERE ctj.field_job_sent_to_client_date_value IS NOT NULL";
+
+  $result = db_query($query);
+
+  while ($row = db_fetch_array($result)) {
+    $job_files_to_c[] = $row['field_job_files_sent_to_client_fid'];
+  }
+
+  return $job_files_to_c;
+}
+
+/**
+ * @return array of completed job extra files sent to client
+ */
+function _whiteboard_migration_files_fetch_job_extra_files_to_c_fids() {
+  $job_extra_files_sent_to_c = array();
+  // Query to fetch fids for enquiry files.
+  $query = "SELECT DISTINCT cfejsc.field_extra_job_files_sent_to_c_fid FROM";
+  $query .= " {content_field_extra_job_files_sent_to_c} as cfejsc JOIN";
+  $query .= " {content_type_job} as ctj ON ctj.nid=cfejsc.nid";
+  $query .= " WHERE ctj.field_job_sent_to_client_date_value IS NOT NULL";
+
+  $result = db_query($query);
+
+  while ($row = db_fetch_array($result)) {
+    $job_extra_files_sent_to_c[] = $row['field_extra_job_files_sent_to_c_fid'];
+  }
+
+  return $job_extra_files_sent_to_c;
+}
+
+/**
+ * @return array of job question files asked.
+ */
+function _whiteboard_migration_files_fetch_job_question_fids() {
+  $job_question_files = array();
+  // Query to fetch fids for enquiry files.
+  $query = "SELECT DISTINCT cfjqf.field_job_questions_file_fid FROM";
+  $query .= " {content_field_job_questions_file} as cfjqf JOIN";
+  $query .= " {content_type_job_questions} as ctjq ON ctjq.nid=cfjqf.nid JOIN";
+  $query .= " {content_type_job} as ctj ON ctj.nid=ctjq.field_job_questions_job_id_nid";
+  $query .= " WHERE ctj.field_job_sent_to_client_date_value IS NOT NULL";
+
+  $result = db_query($query);
+
+  while ($row = db_fetch_array($result)) {
+    $job_question_files[] = $row['field_job_questions_file_fid'];
+  }
+
+  return $job_question_files;
+}
+
+/**
+ * @return array of job question extra files asked.
+ */
+function _whiteboard_migration_files_job_quesiton_extra_files() {
+  $job_question_extra_files = array();
+
+  // Query to fetch fids for enquiry files.
+  $query = "SELECT DISTINCT cfjqesf.field_job_que_extra_sent_files_fid FROM";
+  $query .= " {content_field_job_que_extra_sent_files} as cfjqesf JOIN";
+  $query .= " {content_type_job_questions} as ctjq ON ctjq.nid=cfjqesf.nid JOIN";
+  $query .= " {content_type_job} as ctj ON ctj.nid=ctjq.field_job_questions_job_id_nid";
+  $query .= " WHERE ctj.field_job_sent_to_client_date_value IS NOT NULL";
+
+  $result = db_query($query);
+
+  while ($row = db_fetch_array($result)) {
+    $job_question_extra_files[] = $row['field_job_que_extra_sent_files_fid'];
+  }
+
+  return $job_question_extra_files;
+}
+
+/**
+ * @return array of job question extra files asked.
+ */
+function _whiteboard_migration_files_job_quesiton_reference_files() {
+  $job_question_reference_files = array();
+
+  // Query to fetch fids for enquiry files.
+  $query = "SELECT DISTINCT cfjqrf.field_job_que_reference_file_fid FROM";
+  $query .= " {content_field_job_que_reference_file} as cfjqrf JOIN";
+  $query .= " {content_type_job_questions} as ctjq ON ctjq.nid=cfjqrf.nid JOIN";
+  $query .= " {content_type_job} as ctj ON ctj.nid=ctjq.field_job_questions_job_id_nid";
+  $query .= " WHERE ctj.field_job_sent_to_client_date_value IS NOT NULL";
+
+  $result = db_query($query);
+
+  while ($row = db_fetch_array($result)) {
+    $job_question_reference_files[] = $row['field_job_que_reference_file_fid'];
+  }
+
+  return $job_question_reference_files;
+}
+
+/**
+ * @return array of job question response sent files.
+ */
+function _whiteboard_migration_files_job_quesiton_sent_files() {
+  $job_question_sent_files = array();
+
+  // Query to fetch fids for enquiry files.
+  $query = "SELECT DISTINCT cfjqsf.field_job_que_sent_files_fid FROM";
+  $query .= " {content_field_job_que_sent_files} as cfjqsf JOIN";
+  $query .= " {content_type_job_questions} as ctjq ON ctjq.nid=cfjqsf.nid JOIN";
+  $query .= " {content_type_job} as ctj ON ctj.nid=ctjq.field_job_questions_job_id_nid";
+  $query .= " WHERE ctj.field_job_sent_to_client_date_value IS NOT NULL";
+
+  $result = db_query($query);
+
+  while ($row = db_fetch_array($result)) {
+    $job_question_sent_files[] = $row['field_job_que_sent_files_fid'];
+  }
+
+  return $job_question_sent_files;
+}
+
+/**
+ * @return array of job question reference files asked.
+ */
+function _whiteboard_migration_files_job_question_upload_files() {
+  $job_question_upload_files = array();
+
+  // Query to fetch fids for enquiry files.
+  $query = "SELECT DISTINCT cfjquf.field_job_que_upload_files_fid FROM";
+  $query .= " {content_field_job_que_upload_files} as cfjquf JOIN";
+  $query .= " {content_type_job_questions_details} as ctjqd ON ctjqd.nid=cfjquf.nid JOIN";
+  $query .= " {content_type_job_questions} as ctjq ON ctjq.nid=ctjqd.field_job_que_details_job_que_nid JOIN";
+  $query .= " {content_type_job} as ctj ON ctj.nid=ctjq.field_job_questions_job_id_nid";
+  $query .= " WHERE ctj.field_job_sent_to_client_date_value IS NOT NULL";
+
+  $result = db_query($query);
+
+  while ($row = db_fetch_array($result)) {
+    $job_question_upload_files[] = $row['field_job_que_upload_files_fid'];
+  }
+
+  return $job_question_upload_files;
+}
+
+/**
+ * @return array of job feedback files.
+ */
+function _whiteboard_migration_files_job_feedback_files() {
+  $job_feedback_files = array();
+
+  // Query to fetch fids for enquiry files.
+  $query = "SELECT DISTINCT cfja.field_jqf_attachments_fid FROM";
+  $query .= " {content_field_jqf_attachments} cfja JOIN";
+  $query .= " {content_type_job_quality_feedback} as ctjqf ON ctjqf.nid=cfja.nid JOIN";
+  $query .= " {content_type_job_details} as ctjd ON ctjd.nid=ctjqf.field_jqf_job_details_id_nid JOIN";
+  $query .= " {content_type_job} as ctj ON ctj.nid=ctjd.field_job_details_job_id_nid";
+  $query .= " WHERE ctj.field_job_sent_to_client_date_value IS NOT NULL";
+
+  $result = db_query($query);
+
+  while ($row = db_fetch_array($result)) {
+    $job_feedback_files[] = $row['field_jqf_attachments_fid'];
+  }
+
+  return $job_feedback_files;
+}
+
+/**
+ * Helper function to process file migration to s3.
+ */
+function _whitebord_migration_files_process($fid) {
+  $query = "SELECT * FROM {files} WHERE fid = %d";
+  if (!preg_match("/\b(?:(?:https?|ftp):\/\/|www\.)[-a-z0-9+&@#\/%?=~_|!:,.;]*[-a-z0-9+&@#\/%=~_|]/i", $file['filepath'])) {
+    $result = db_query($query, array($fid));
+    $file = db_fetch_array($result);
+    $wbmigration = new WhiteboardMigrationInvoice($file['filepath'], $file['fid'],'', '');
+    $wbmigration->moveJobFiletos3();
+  }
+}

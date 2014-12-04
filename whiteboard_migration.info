@@ -1,0 +1,8 @@
+name = Whiteboard Migration
+description = Provides drush commands to migrate old invoices contetn.
+package = User interface
+core = 6.x
+version = "6.x-2.3"
+project = "whiteboard_migration"
+
+files[] = theme/whiteboard_migration.theme.inc

@@ -1,0 +1,68 @@
+<?php
+/**
+ * @file
+ *
+ * Install file. Contains hooks related to module installation.
+ */
+
+/**
+ * Implements hook_schema()
+ *
+ * @return mixed
+ */
+function whiteboard_migration_files_schema() {
+  $schema = array();
+
+  $schema['whiteboard_migration_files_map'] = array(
+    'description' => 'Holds the mapping between migrated invoice ids & corresponding html files.',
+    'fields' => array (
+      'fid' => array (
+        'type' => 'int',
+        'not null' => TRUE,
+        'description' => t('Migrated file ids.'),
+      ),
+      'source_filepath' => array (
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => t('Local file path for the html file.'),
+      ),
+      's3url' => array (
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => t('s3url for the html file.'),
+      ),
+      'uploaded' => array (
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => t('Upload status.'),
+      ),
+    ),
+    'primary key' => array('fid'),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implements hook_install()
+ */
+function whiteboard_migration_files_install() {
+  try {
+    drupal_install_schema("whiteboard_migration_files");
+  }
+  catch (Exception $e) {
+    drupal_set_message("Installation of Whiteboard Files Migration table failed!");
+  }
+}
+
+/**
+ * Implements hook_uninstall()
+ */
+function whiteboard_migration_files_uninstall() {
+  drupal_uninstall_schema("whiteboard_migration_files");
+}
