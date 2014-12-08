@@ -261,7 +261,7 @@ function _whitebord_migration_files_process($fid) {
   if (!preg_match("/\b(?:(?:https?|ftp):\/\/|www\.)[-a-z0-9+&@#\/%?=~_|!:,.;]*[-a-z0-9+&@#\/%=~_|]/i", $file['filepath'])) {
     $result = db_query($query, array($fid));
     $file = db_fetch_array($result);
-    $wbmigration = new WhiteboardMigrationInvoice($file['filepath'], $file['fid'],'', '');
+    $wbmigration = new WhiteboardMigrationInvoice($file['filepath'], '', $file['fid'],'', '');
     $wbmigration->moveJobFiletos3();
   }
 }

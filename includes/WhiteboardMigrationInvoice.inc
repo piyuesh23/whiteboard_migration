@@ -63,11 +63,11 @@ Class WhiteboardMigrationInvoice {
 
   public function moveJobFiletos3() {
     try {
-      $resource = fopen(DRUPAL_BASEPATH . '/' . $this->filepath, 'r');
-      $response = $this->client->upload('whiteboarddev', $this->filepath, $resource, 'public-read');
+      $resource = fopen(DRUPAL_BASEPATH . '/' . $this->filepath_online, 'r');
+      $response = $this->client->upload('whiteboarddev', $this->filepath_online, $resource, 'public-read');
       $query = "Update {files} SET filepath = '%s' WHERE filepath = '%s'";
       if ($response['ObjectURL']) {
-        db_query($query, array($response['ObjectURL'], $this->filepath));
+        db_query($query, array($response['ObjectURL'], $this->filepath_online));
       }
     } catch (S3Exception $e) {
       echo "There was an error uploading the file.\n";

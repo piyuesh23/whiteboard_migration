@@ -1,0 +1,14 @@
+# What this module provides:
+  - Provides a list of drush commands to handle migration of files related to completed jobs to s3.
+    - migrate-whiteboard-enquiry-files (mwef)  Moves the completed job related files to s3 & saves the s3 url.
+    - migrate-whiteboard-extra-files-sent-to-c (mwefsc) Moves the completed job's extra files sent to client to s3 & saves the s3 url.
+    - migrate-whiteboard-files-sent-to-c (mwfsc) Moves the completed job related files sent to client to s3 & saves the s3 url.
+    - migrate-whiteboard-job-feedback-files (mwjff) Moves the completed job's feedback files to s3 & saves the s3 url.
+    - migrate-whiteboard-job-question-extra-files (mwjqef)  Moves the completed job's question extra files to s3 & saves the s3 url.
+    - migrate-whiteboard-job-question-files (mwjqf) Moves the completed job's question files to s3 & saves the s3 url.
+    - migrate-whiteboard-job-question-reference-files (mwjqrf)  Moves the completed job questions's reference files to s3 & saves the s3 url.
+    - migrate-whiteboard-job-question-sent-files (mwjqsf)  Moves the completed job question's sent files to s3 & saves the s3 url.
+    - migrate-whiteboard-job-question-upload-files (mwjquf)  Moves the completed job question's uploaded files to s3 & saves the s3 url.
+    - migrate-whiteboard-processed-files (mwpf)  Moves the completed job related processed files to s3 & saves the s3 url.
+    - migrate-whiteboard-reference-files (mwrf) Moves the completed job related reference files to s3 & saves the s3 url.
+  - test_drush.sh - to run all the above mentioned drush commands at once.
